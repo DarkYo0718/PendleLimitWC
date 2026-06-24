@@ -1,0 +1,56 @@
+{
+  "pendle": {
+    "chainId": 143,
+    "market": "0x6f99cf00ee7290ae78a072bb6910ef72d1129fe7",
+    "precisionDecimal": 3,
+    "limit": 100,
+    "includeAmm": false
+  },
+  "telegram": {
+    "botToken": "PUT_YOUR_BOT_TOKEN_HERE",
+    "chatId": "PUT_YOUR_CHAT_ID_HERE"
+  },
+  "walletMonitor": {
+    "enabled": false,
+    "address": "PUT_YOUR_WALLET_ADDRESS_HERE",
+    "minUsdChange": 1.0,
+    "minPercentChange": 1.0
+  },
+  "monitor": {
+    "pollSeconds": 60,
+    "alertCooldownSeconds": 900,
+    "notifyOnRecovery": true,
+    "checks": {
+      "bestLongYieldApy": {
+        "enabled": false,
+        "min": "7.0%",
+        "max": "8.5%"
+      },
+      "bestShortYieldApy": {
+        "enabled": false,
+        "min": "7.0%",
+        "max": "8.5%"
+      },
+      "incentiveLongYieldApy": {
+        "enabled": true,
+        "min": "7.5%",
+        "max": "7.6%"
+      },
+      "incentiveShortYieldApy": {
+        "enabled": false,
+        "min": "7.5%",
+        "max": "7.6%"
+      },
+      "anyLongYieldApy": {
+        "enabled": false,
+        "min": "5.0%",
+        "max": "12.0%"
+      },
+      "anyShortYieldApy": {
+        "enabled": false,
+        "min": "5.0%",
+        "max": "12.0%"
+      }
+    }
+  }
+}
