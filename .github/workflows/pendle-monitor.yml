@@ -61,7 +61,9 @@ jobs:
           chmod 600 "$HOME/.ssh/id_ed25519"
           ssh-keyscan github.com >> "$HOME/.ssh/known_hosts"
           mkdir "$RUNNER_TEMP/publish"
+          mkdir -p "$RUNNER_TEMP/publish/.github/workflows"
           cp "$RUNNER_TEMP/state.json" "$RUNNER_TEMP/publish/state.json"
+          cp "$GITHUB_WORKSPACE/.github/workflows/pendle-monitor.yml" "$RUNNER_TEMP/publish/.github/workflows/pendle-monitor.yml"
           cd "$RUNNER_TEMP/publish"
           git init
           git checkout -b monitor-data
