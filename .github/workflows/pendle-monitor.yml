@@ -3,12 +3,9 @@ name: Pendle cloud monitor
 on:
   push:
     branches:
-      - master
-    paths:
-      - ".github/workflows/pendle-monitor.yml"
-      - "cloud-monitor.ps1"
+      - monitor-data
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "17,47 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,10 +20,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
+      - name: Wait for next five-minute sample
+        if: github.event_name == 'push' && github.ref == 'refs/heads/monitor-data'
+        shell: bash
+        run: sleep 300
+
       - name: Checkout source
         uses: actions/checkout@v4
         with:
+          ref: master
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Restore latest state
         shell: bash
@@ -52,6 +56,10 @@ jobs:
       - name: Publish state branch
         shell: bash
         run: |
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$MONITOR_DEPLOY_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          ssh-keyscan github.com >> "$HOME/.ssh/known_hosts"
           mkdir "$RUNNER_TEMP/publish"
           cp "$RUNNER_TEMP/state.json" "$RUNNER_TEMP/publish/state.json"
           cd "$RUNNER_TEMP/publish"
@@ -61,7 +69,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add state.json
           git commit -m "Update Pendle monitor state"
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote add origin "git@github.com:${GITHUB_REPOSITORY}.git"
           git push --force origin monitor-data
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MONITOR_DEPLOY_KEY: ${{ secrets.MONITOR_DEPLOY_KEY }}
