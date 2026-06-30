@@ -20,7 +20,7 @@
   },
   "monitor": {
     "pollSeconds": 60,
-    "remoteStateUrl": "https://raw.githubusercontent.com/DarkYo0718/PendleLimitWC/monitor-data/state.json",
+    "remoteStateUrl": "https://api.github.com/repos/DarkYo0718/PendleLimitWC/contents/state.json?ref=monitor-data",
     "alertCooldownSeconds": 900,
     "notifyOnRecovery": true,
     "checks": {

@@ -1,5 +1,6 @@
 Imports System.IO
 Imports System.Net.Http
+Imports System.Net.Http.Headers
 
 Public Class Form1
     Private ReadOnly ytChart As ChartCanvas
@@ -28,6 +29,7 @@ Public Class Form1
      Private liveFetchInProgress As Boolean = False
      Private calculatorForm As ProfitCalculatorForm
      Private Shared ReadOnly RemoteClient As New HttpClient()
+     Private lastRemoteSyncAt As DateTime = DateTime.MinValue
 
      Public Sub New()
           InitializeComponent()
@@ -280,10 +282,15 @@ Public Class Form1
 
      Private Async Function SyncRemoteStateAsync() As Task
           If String.IsNullOrWhiteSpace(appConfig.RemoteStateUrl) Then Return
+          Dim minimumInterval = Math.Max(90, appConfig.PollSeconds)
+          If (DateTime.UtcNow - lastRemoteSyncAt).TotalSeconds < minimumInterval Then Return
 
           Dim separator = If(appConfig.RemoteStateUrl.Contains("?"), "&", "?")
           Dim requestUri = appConfig.RemoteStateUrl & separator & "t=" & DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()
-          Using response = Await RemoteClient.GetAsync(requestUri)
+          Using request As New HttpRequestMessage(HttpMethod.Get, requestUri)
+               request.Headers.Accept.Add(New MediaTypeWithQualityHeaderValue("application/vnd.github.raw+json"))
+               request.Headers.UserAgent.ParseAdd("PendleLimitWC/1.0")
+          Using response = Await RemoteClient.SendAsync(request)
                response.EnsureSuccessStatusCode()
                Dim json = Await response.Content.ReadAsStringAsync()
                Using document = System.Text.Json.JsonDocument.Parse(json)
@@ -293,6 +300,8 @@ Public Class Form1
                     End If
                End Using
                File.WriteAllText(statePath, json)
+               lastRemoteSyncAt = DateTime.UtcNow
+          End Using
           End Using
      End Function
 

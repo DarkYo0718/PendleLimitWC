@@ -152,6 +152,7 @@ Repository Actions secrets required:
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 
-Set `monitor.remoteStateUrl` in local `config.json` to the Raw GitHub URL. When
+Set `monitor.remoteStateUrl` in local `config.json` to the GitHub Contents API
+URL for `state.json` on `monitor-data`. When
 this value is present, the WinForms viewer downloads cloud history and disables
 its own API polling and Telegram sending, preventing duplicate notifications.
