@@ -1,15 +1,19 @@
 name: Pendle cloud monitor
 
 on:
-  push:
-    branches:
-      - monitor-data
   schedule:
-    - cron: "17,47 * * * *"
+    - cron: "23 3 * * *"
   workflow_dispatch:
+    inputs:
+      chained:
+        description: "Wait five minutes before collecting the next sample"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-  contents: write
+  actions: write
+  contents: read
 
 concurrency:
   group: pendle-cloud-monitor
@@ -21,7 +25,7 @@ jobs:
     timeout-minutes: 4
     steps:
       - name: Wait for next five-minute sample
-        if: github.event_name == 'push' && github.ref == 'refs/heads/monitor-data'
+        if: inputs.chained == true
         shell: bash
         run: sleep 300
 
@@ -75,3 +79,19 @@ jobs:
           git push --force origin monitor-data
         env:
           MONITOR_DEPLOY_KEY: ${{ secrets.MONITOR_DEPLOY_KEY }}
+
+      - name: Queue next monitor run
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          queued=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/pendle-monitor.yml/runs?status=queued&per_page=20" --jq ".workflow_runs | map(select(.id != ${GITHUB_RUN_ID})) | length")
+          running=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/pendle-monitor.yml/runs?status=in_progress&per_page=20" --jq ".workflow_runs | map(select(.id != ${GITHUB_RUN_ID})) | length")
+          if [ "$queued" -eq 0 ] && [ "$running" -eq 0 ]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/pendle-monitor.yml/dispatches" --input - <<'JSON'
+          {"ref":"master","inputs":{"chained":"true"}}
+          JSON
+          else
+            echo "Another monitor run is already queued or running."
+          fi
