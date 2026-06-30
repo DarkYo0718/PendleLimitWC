@@ -1,6 +1,12 @@
 name: Pendle cloud monitor
 
 on:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/pendle-monitor.yml"
+      - "cloud-monitor.ps1"
   schedule:
     - cron: "2/5 * * * *"
   workflow_dispatch:
