@@ -22,7 +22,7 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 8
     steps:
       - name: Wait for next five-minute sample
         if: inputs.chained == true
