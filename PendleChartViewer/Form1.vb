@@ -281,7 +281,9 @@ Public Class Form1
      Private Async Function SyncRemoteStateAsync() As Task
           If String.IsNullOrWhiteSpace(appConfig.RemoteStateUrl) Then Return
 
-          Using response = Await RemoteClient.GetAsync(appConfig.RemoteStateUrl)
+          Dim separator = If(appConfig.RemoteStateUrl.Contains("?"), "&", "?")
+          Dim requestUri = appConfig.RemoteStateUrl & separator & "t=" & DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()
+          Using response = Await RemoteClient.GetAsync(requestUri)
                response.EnsureSuccessStatusCode()
                Dim json = Await response.Content.ReadAsStringAsync()
                Using document = System.Text.Json.JsonDocument.Parse(json)
