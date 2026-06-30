@@ -1,0 +1,61 @@
+name: Pendle cloud monitor
+
+on:
+  schedule:
+    - cron: "2/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pendle-cloud-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore latest state
+        shell: bash
+        run: |
+          if git fetch origin monitor-data; then
+            git show origin/monitor-data:state.json > "$RUNNER_TEMP/state.json"
+          else
+            echo '{}' > "$RUNNER_TEMP/state.json"
+          fi
+
+      - name: Fetch Pendle data and notify Telegram
+        shell: pwsh
+        env:
+          PENDLE_CHAIN_ID: "143"
+          PENDLE_MARKET: "0x6f99cf00ee7290ae78a072bb6910ef72d1129fe7"
+          PENDLE_WALLET: "0x7bc616f0a9d40061357de0bff8bf42117057165e"
+          MIN_USD_CHANGE: "1"
+          MIN_APY_CHANGE_PP: "0.01"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: ./cloud-monitor.ps1 -StatePath "$env:RUNNER_TEMP/state.json"
+
+      - name: Publish state branch
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/publish"
+          cp "$RUNNER_TEMP/state.json" "$RUNNER_TEMP/publish/state.json"
+          cd "$RUNNER_TEMP/publish"
+          git init
+          git checkout -b monitor-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          git commit -m "Update Pendle monitor state"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin monitor-data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

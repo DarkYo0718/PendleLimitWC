@@ -1,3 +1,9 @@
 .pendle-monitor-state.json
 config.json
 *.log
+.vs/
+bin/
+obj/
+*.vbproj.user
+PendleChartViewer/bin/
+PendleChartViewer/obj/

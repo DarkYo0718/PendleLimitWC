@@ -14,10 +14,13 @@
     "enabled": false,
     "address": "PUT_YOUR_WALLET_ADDRESS_HERE",
     "minUsdChange": 1.0,
-    "minPercentChange": 1.0
+    "minFixApyChangePercentPoints": 0.01,
+    "advisorSafetyMarginPercentPoints": 0.02,
+    "historyPoints": 720
   },
   "monitor": {
     "pollSeconds": 60,
+    "remoteStateUrl": "https://raw.githubusercontent.com/DarkYo0718/PendleLimitWC/monitor-data/state.json",
     "alertCooldownSeconds": 900,
     "notifyOnRecovery": true,
     "checks": {
@@ -32,7 +35,7 @@
         "max": "8.5%"
       },
       "incentiveLongYieldApy": {
-        "enabled": true,
+        "enabled": false,
         "min": "7.5%",
         "max": "7.6%"
       },

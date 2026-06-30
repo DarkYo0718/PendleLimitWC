@@ -84,6 +84,22 @@ function Get-PendleOrderBook {
     }
 }
 
+function Get-PendleMarketStatus {
+    param($Config)
+
+    $pendle = $Config.pendle
+    $uri = "https://api-v2.pendle.finance/core/v1/$($pendle.chainId)/markets/$($pendle.market)"
+    $market = Invoke-RestMethod -Uri $uri -Method Get -Headers @{
+        Accept = "application/json"
+        "User-Agent" = "PendleLimitWC/1.0"
+    }
+
+    [pscustomobject]@{
+        ImpliedApy = [double]$market.impliedApy
+        UpdatedAt = [string]$market.dataUpdatedAt
+    }
+}
+
 function Get-WalletYtStatus {
     param($Config)
 
@@ -163,20 +179,75 @@ function Get-WalletYtChange {
     else {
         1.0
     }
-    $minPercentChange = if ($null -ne $Config.walletMonitor.minPercentChange) {
-        [double]$Config.walletMonitor.minPercentChange
-    }
-    else {
-        1.0
-    }
-
     [pscustomobject]@{
         PreviousUsd = $previous
         CurrentUsd = $current
         ChangeUsd = $change
         PercentChange = $percentChange
-        ShouldNotify = $absoluteChange -ge $minUsdChange -or [math]::Abs($percentChange) -ge $minPercentChange
+        ShouldNotify = $absoluteChange -ge $minUsdChange
     }
+}
+
+function Get-FixApyChange {
+    param(
+        $Config,
+        $MarketStatus,
+        $State
+    )
+
+    if ($null -eq $MarketStatus -or -not [bool]$State.hasFixApyBaseline) {
+        return $null
+    }
+
+    $previous = [double]$State.lastFixApy
+    $current = [double]$MarketStatus.ImpliedApy
+    $changePercentagePoints = ($current - $previous) * 100.0
+    $minimumChange = if ($null -ne $Config.walletMonitor.minFixApyChangePercentPoints) {
+        [double]$Config.walletMonitor.minFixApyChangePercentPoints
+    }
+    else {
+        0.001
+    }
+
+    [pscustomobject]@{
+        Previous = $previous
+        Current = $current
+        ChangePercentagePoints = $changePercentagePoints
+        ShouldNotify = [math]::Abs($changePercentagePoints) -ge $minimumChange
+    }
+}
+
+function Add-WalletYtHistoryPoint {
+    param(
+        $Config,
+        $State,
+        $WalletStatus,
+        $MarketStatus,
+        [datetime]$Timestamp
+    )
+
+    if ($null -eq $WalletStatus -or $null -eq $MarketStatus) {
+        return
+    }
+
+    $history = @($State.walletYtHistory)
+    $history += [pscustomobject]@{
+        timestamp = $Timestamp.ToUniversalTime().ToString("o")
+        valueUsd = [double]$WalletStatus.ValueUsd
+        fixApy = [double]$MarketStatus.ImpliedApy
+    }
+
+    $maxPoints = if ($null -ne $Config.walletMonitor.historyPoints) {
+        [Math]::Max(10, [int]$Config.walletMonitor.historyPoints)
+    }
+    else {
+        720
+    }
+    if ($history.Count -gt $maxPoints) {
+        $history = @($history | Select-Object -Last $maxPoints)
+    }
+
+    $State.walletYtHistory = $history
 }
 
 function Test-Range {
@@ -323,17 +394,17 @@ function Get-Alerts {
 
 function Get-SummaryText {
     param(
-        $OrderBook,
-        $WalletStatus
+        $WalletStatus,
+        $MarketStatus
     )
 
-    $longEntries = @($OrderBook.longYieldEntries)
     $lines = @()
 
-    $longIncentiveValues = Get-IncentiveQualifiedApyValues $longEntries
-    $lines += "Reward Buy YT range: $(Format-ApyRange $longIncentiveValues)"
     if ($null -ne $WalletStatus) {
         $lines += "Wallet YT value: $(Format-Usd $WalletStatus.ValueUsd)"
+    }
+    if ($null -ne $MarketStatus) {
+        $lines += "FIX APY: $(Format-Apy $MarketStatus.ImpliedApy)"
     }
 
     $lines -join "`n"
@@ -414,6 +485,15 @@ function Read-State {
         if ($null -eq $state.PSObject.Properties["lastWalletYtValueUsd"]) {
             $state | Add-Member -NotePropertyName lastWalletYtValueUsd -NotePropertyValue 0.0
         }
+        if ($null -eq $state.PSObject.Properties["hasFixApyBaseline"]) {
+            $state | Add-Member -NotePropertyName hasFixApyBaseline -NotePropertyValue $false
+        }
+        if ($null -eq $state.PSObject.Properties["lastFixApy"]) {
+            $state | Add-Member -NotePropertyName lastFixApy -NotePropertyValue 0.0
+        }
+        if ($null -eq $state.PSObject.Properties["walletYtHistory"]) {
+            $state | Add-Member -NotePropertyName walletYtHistory -NotePropertyValue @()
+        }
         return $state
     }
 
@@ -424,6 +504,9 @@ function Read-State {
         lastRewardBuyRangeKey = ""
         hasWalletYtBaseline = $false
         lastWalletYtValueUsd = 0.0
+        hasFixApyBaseline = $false
+        lastFixApy = 0.0
+        walletYtHistory = @()
     }
 }
 
@@ -442,14 +525,13 @@ function Invoke-MonitorOnce {
         [string]$StatePath
     )
 
-    $orderBook = Get-PendleOrderBook $Config
     $walletStatus = Get-WalletYtStatus $Config
-    $alerts = @(Get-Alerts $Config $orderBook)
-    $rewardBuyStatus = Get-RewardBuyRangeStatus -Config $Config -OrderBook $orderBook
-    $summary = Get-SummaryText -OrderBook $orderBook -WalletStatus $walletStatus
+    $marketStatus = Get-PendleMarketStatus $Config
+    $summary = Get-SummaryText -WalletStatus $walletStatus -MarketStatus $marketStatus
     $now = Get-Date
     $state = Read-State $StatePath
     $walletChange = Get-WalletYtChange -Config $Config -WalletStatus $walletStatus -State $state
+    $fixApyChange = Get-FixApyChange -Config $Config -MarketStatus $marketStatus -State $state
 
     Write-Host "[$($now.ToString("yyyy-MM-dd HH:mm:ss"))]"
     Write-Host $summary
@@ -457,56 +539,7 @@ function Invoke-MonitorOnce {
     $botToken = Get-TelegramBotToken $Config
     $chatId = Get-TelegramChatId $Config
 
-    $previousRangeKey = [string]$state.lastRewardBuyRangeKey
-    $hasPreviousRange = -not [string]::IsNullOrWhiteSpace($previousRangeKey)
-    $rangeChanged = $hasPreviousRange -and $rewardBuyStatus.RangeKey -ne $previousRangeKey
-
-    if ($alerts.Count -gt 0) {
-        $alertKey = ($alerts | ForEach-Object { $_.Message }) -join "|"
-
-        if ($rangeChanged) {
-            $message = @(
-                "Pendle 掛單獎勵提醒",
-                "Reward Buy YT: $($rewardBuyStatus.RangeText)",
-                "目標: $($rewardBuyStatus.TargetText)",
-                "狀態: 區間變更",
-                "時間: $($now.ToString("HH:mm:ss"))"
-            ) -join "`n"
-
-            Send-TelegramMessage -BotToken $botToken -ChatId $chatId -Text $message
-            Write-Host "Range change notification sent."
-        }
-        else {
-            Write-Host "Range unchanged; notification skipped."
-        }
-
-        $state.lastAlertKey = $alertKey
-        $state.lastAlertAt = $now.ToUniversalTime().ToString("o")
-        $state.wasOutOfRange = $true
-        $state.lastRewardBuyRangeKey = $rewardBuyStatus.RangeKey
-    }
-    else {
-        if ($rangeChanged) {
-            $message = @(
-                "Pendle 掛單獎勵提醒",
-                "Reward Buy YT: $($rewardBuyStatus.RangeText)",
-                "目標: $($rewardBuyStatus.TargetText)",
-                "狀態: 區間變更",
-                "時間: $($now.ToString("HH:mm:ss"))"
-            ) -join "`n"
-
-            Send-TelegramMessage -BotToken $botToken -ChatId $chatId -Text $message
-            Write-Host "Range change notification sent."
-        }
-        else {
-            Write-Host "In range."
-        }
-
-        $state.lastAlertKey = ""
-        $state.wasOutOfRange = $false
-        $state.lastRewardBuyRangeKey = $rewardBuyStatus.RangeKey
-    }
-
+    $notificationLines = @()
     if ($null -ne $walletStatus) {
         if (-not [bool]$state.hasWalletYtBaseline) {
             $state.hasWalletYtBaseline = $true
@@ -521,19 +554,30 @@ function Invoke-MonitorOnce {
             else {
                 "{0:N2}%" -f [math]::Abs($walletChange.PercentChange)
             }
-            $message = @(
-                "Pendle YT 價值變動",
-                "目前: $(Format-Usd $walletChange.CurrentUsd)",
-                "$direction`: $(Format-Usd ([math]::Abs($walletChange.ChangeUsd))) ($percentText)",
-                "時間: $($now.ToString("HH:mm:ss"))"
-            ) -join "`n"
-
-            Send-TelegramMessage -BotToken $botToken -ChatId $chatId -Text $message
-            Write-Host "Wallet YT value notification sent."
+            $notificationLines += "YT 價值: $(Format-Usd $walletChange.CurrentUsd)"
+            $notificationLines += "$direction $(Format-Usd ([math]::Abs($walletChange.ChangeUsd))) ($percentText)"
             $state.lastWalletYtValueUsd = $walletStatus.ValueUsd
         }
     }
 
+    if (-not [bool]$state.hasFixApyBaseline) {
+        $state.hasFixApyBaseline = $true
+        $state.lastFixApy = $marketStatus.ImpliedApy
+        Write-Host "FIX APY baseline saved: $(Format-Apy $marketStatus.ImpliedApy)"
+    }
+    elseif ($null -ne $fixApyChange -and [bool]$fixApyChange.ShouldNotify) {
+        $notificationLines += "FIX APY: $(Format-Apy $fixApyChange.Current)"
+        $notificationLines += "變化: $('{0:+0.000;-0.000;0.000}' -f $fixApyChange.ChangePercentagePoints) 個百分點"
+        $state.lastFixApy = $marketStatus.ImpliedApy
+    }
+
+    if ($notificationLines.Count -gt 0) {
+        $message = @("Pendle 變化通知") + $notificationLines + "時間: $($now.ToString("HH:mm:ss"))"
+        Send-TelegramMessage -BotToken $botToken -ChatId $chatId -Text ($message -join "`n")
+        Write-Host "YT value / FIX APY notification sent."
+    }
+
+    Add-WalletYtHistoryPoint -Config $Config -State $state -WalletStatus $walletStatus -MarketStatus $marketStatus -Timestamp $now
     Write-State -Path $StatePath -State $state
 }
 

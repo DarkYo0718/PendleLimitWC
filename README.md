@@ -69,6 +69,12 @@ Run tray monitor without a visible PowerShell console:
 .\start-tray-monitor.vbs
 ```
 
+Open the VB.NET Bitmap chart viewer:
+
+```powershell
+.\Start-PendleChartViewer.vbs
+```
+
 ## Checks
 
 `incentiveLongYieldApy` checks the Reward Buy YT range, using Buy YT order-book levels where `incentiveQualifiedPySize` is greater than zero. This is the default enabled monitor.
@@ -87,6 +93,65 @@ Set `walletMonitor.enabled` to `true` and enter the wallet address in
 `walletMonitor.address`. The monitor reads the YT USD valuation for the configured
 Monad market from Pendle's user positions API.
 
-`minUsdChange` and `minPercentChange` are notification thresholds. A Telegram
-message is sent when either threshold is reached. The first successful refresh
-only saves a baseline and does not send a notification.
+Each refresh stores the wallet YT USD value and the market FIX APY
+(`impliedApy`). The tray window draws the saved YT values as a Bitmap line chart
+with automatic zoom on the visible data. Use the timeline slider below the chart
+to inspect older points; drag it back to the far right to follow the latest data.
+
+The `PendleChartViewer` VB.NET WinForms project reads the same
+`.pendle-monitor-state.json` history file and draws the chart with Bitmap. Drag
+left/right to pan, use the mouse wheel to zoom, move the mouse to inspect a point,
+and double-click to return to the latest data. It includes separate YT value,
+FIX APY, and Underlying APY + Rewards charts, a right-side change list, and a
+system tray icon. Minimize or close the window to keep it running in the
+lower-right tray; right-click the tray icon and choose `Exit` to stop it.
+
+The VB.NET chart viewer also reads Telegram settings and thresholds from
+`config.json`. The first loaded point only becomes the baseline; later updates
+send a short Chinese Telegram notification when YT value changes by at least
+`walletMonitor.minUsdChange` or FIX APY changes by at least
+`walletMonitor.minFixApyChangePercentPoints`. FIX APY notifications are also
+guarded so changes below `0.01pp` are ignored.
+
+The VB.NET chart viewer also updates `.pendle-monitor-state.json` itself. It uses
+`monitor.pollSeconds` as the live API polling interval, so it can refresh once per
+minute without the PowerShell tray monitor running separately.
+
+Underlying APY + Rewards is calculated from Pendle market data as
+`underlyingApy + ytExclusive underlyingRewardApyBreakdown`. The raw state stores
+`underlyingApy`, `underlyingInterestApy`, `underlyingRewardApy`, and
+`ytIncentiveRewardApy` for each new point.
+
+It also has a read-only limit-order advisor. The advisor reads Pendle's
+incentivized range and your maker orders, then shows whether your active order is
+inside the reward range. If there is no active order, or the order leaves/gets too
+close to the range edge, it sends a Telegram suggestion. It does not sign,
+cancel, or create orders.
+
+Telegram notifications are now limited to YT value and FIX APY changes. Reward
+Buy YT range checks are disabled. `minUsdChange` controls the YT value change
+threshold, while `minFixApyChangePercentPoints` controls the FIX APY change
+threshold in percentage points. The current default is `$1` for YT and `0.01pp`
+for FIX APY. The first successful refresh only saves the baseline and does not
+send a notification.
+
+## GitHub cloud monitoring
+
+`.github/workflows/pendle-monitor.yml` runs `cloud-monitor.ps1` every five
+minutes and can also be started manually from the Actions page. The workflow:
+
+- reads the wallet YT quantity and value from Pendle;
+- records FIX APY and Underlying APY + Rewards;
+- sends Telegram only when YT value changes by at least `$1`, or either APY
+  changes by at least `0.01pp`;
+- force-updates `state.json` on the dedicated `monitor-data` branch so monitor
+  history does not create permanent commits on the source branch.
+
+Repository Actions secrets required:
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+
+Set `monitor.remoteStateUrl` in local `config.json` to the Raw GitHub URL. When
+this value is present, the WinForms viewer downloads cloud history and disables
+its own API polling and Telegram sending, preventing duplicate notifications.
